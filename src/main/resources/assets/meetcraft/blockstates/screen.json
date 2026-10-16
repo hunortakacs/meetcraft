@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "meetcraft:block/screen"
+    },
+    "facing=east": {
+      "model": "meetcraft:block/screen",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "meetcraft:block/screen",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "meetcraft:block/screen",
+      "y": 270
+    }
+  }
+}

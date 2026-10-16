@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"package": "dev.meetcraft.client.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"ChatComponentAccessor",
+		"HudAccessor"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

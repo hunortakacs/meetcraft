@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "front": "meetcraft:block/screen_front",
+    "side": "meetcraft:block/screen_side",
+    "top": "meetcraft:block/screen_side"
+  }
+}

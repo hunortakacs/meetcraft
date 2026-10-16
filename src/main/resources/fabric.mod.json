@@ -1,0 +1,39 @@
+{
+	"schemaVersion": 1,
+	"id": "meetcraft",
+	"version": "${version}",
+	"name": "MeetCraft",
+	"description": "Google Meet in Minecraft: theatre screens showing your call, a push-to-talk key, and Google Chat in the chat window.",
+	"authors": [
+		"Hunor"
+	],
+	"license": "CC0-1.0",
+	"icon": "assets/meetcraft/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.meetcraft.MeetCraft"
+		],
+		"client": [
+			"dev.meetcraft.client.MeetCraftClient"
+		],
+		"modmenu": [
+			"dev.meetcraft.client.ModMenuIntegration"
+		]
+	},
+	"mixins": [
+		{
+			"config": "meetcraft.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
+	}
+}
