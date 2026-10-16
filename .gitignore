@@ -41,3 +41,8 @@ replay_*.log
 
 # Signed extension builds
 dist/
+
+# Local secrets (AMO API key for scripts/sign-extension.sh)
+.env
+# web-ext sign bookkeeping
+extension/.amo-upload-uuid

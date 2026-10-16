@@ -1,4 +1,5 @@
-// Runs inside meet.google.com: drives the mic button and tells the background which part of the page is the call.
+// Runs inside meet.google.com once you've turned MeetCraft on there (toggle.js; the background injects it): drives the
+// mic and tells the background which part of the page is the call.
 // Meet's DOM isn't a public API, so the selectors here (data-is-muted, data-participant-id) may need fixing one day.
 
 /** Meet marks the mic and camera buttons with data-is-muted; the mic one mentions it in its label. */
@@ -94,25 +95,18 @@ function reportStage() {
 setInterval(reportStage, 500);
 
 
-// --- Status badge, so it's obvious from the Meet tab whether Minecraft is hooked up. ---
+// --- Status in the MeetCraft badge (toggle.js), so it's obvious from the Meet tab whether Minecraft is hooked up. ---
 
 /** known: whether the background has told us yet; until then the mic gate stays shut. */
 const status = { known: false, mc: false, streaming: false };
-const badge = document.createElement("div");
-badge.style.cssText = [
-  "position:fixed", "left:12px", "bottom:12px", "z-index:2147483647", "pointer-events:none",
-  "padding:4px 8px", "border-radius:6px", "background:rgba(0,0,0,.65)", "color:#fff",
-  "font:12px/1.4 system-ui,sans-serif", "box-sizing:border-box",
-].join(";");
-document.documentElement.append(badge);
 
 function renderBadge() {
   if (!status.mc) {
-    badge.textContent = "⛏ MeetCraft: Minecraft not running";
+    badgeText.textContent = "⛏ MeetCraft: Minecraft not running";
   } else if (status.streaming) {
-    badge.textContent = `⛏ MeetCraft: on screen · ${pinned ? "pinned, Ctrl+click to unpin" : "Ctrl+click a tile to pin it"}`;
+    badgeText.textContent = `⛏ MeetCraft: on screen · ${pinned ? "pinned, Ctrl+click to unpin" : "Ctrl+click a tile to pin it"}`;
   } else {
-    badge.textContent = "⛏ MeetCraft: connected";
+    badgeText.textContent = "⛏ MeetCraft: connected";
   }
 }
 

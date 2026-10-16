@@ -14,7 +14,7 @@ Download both files from the [latest release](https://github.com/hunortakacs/mee
 
 1. In your launcher (Freesm, Prism or the official one), create a **Fabric** instance for **26.3** and put `meetcraft-<version>.jar` in its `mods/` folder. It's the only mod you need.
 2. In **Firefox** or a Firefox-based browser (Zen, LibreWolf…, version 128+), drag `meetcraft-<version>.xpi` onto the window and click *Add*. Chrome isn't supported.
-3. Join the call in Meet. The "⛏ MeetCraft" badge on the page shows when Minecraft is connected.
+3. Open the call in Meet and click **Turn on** in the "⛏ MeetCraft" badge at the bottom left. The page reloads with MeetCraft on, and the badge shows when Minecraft is connected. It starts off again for every new meeting.
 
 Settings: *Options → MeetCraft…*.
 
@@ -38,7 +38,7 @@ The R key doesn't click Meet's mic button, because that wasn't safe enough:
 - **It's slow.** While you play, the Meet tab is in the background, and Firefox slows background tabs down. Meet can take a second or more to react to its button, so the call misses your first words, or keeps hearing you after you've let go.
 - **It doesn't fail safe.** If the game crashed while you were talking, nothing would click mute, and you'd stay live in the call.
 
-Instead, Meet never gets your microphone directly. It gets a copy that passes through a switch inside the Meet page, which only the game can open:
+Instead, once you've turned MeetCraft on, Meet doesn't get your microphone directly. It gets a copy that passes through a switch inside the Meet page, which only the game can open:
 
 - **You start muted.**
 - **Live has to keep being confirmed.** The game confirms it twice a second. If that stops (the game freezes, crashes or disconnects, or the extension reloads), you're muted within about 1.5 seconds.
@@ -51,6 +51,7 @@ Your audio only goes to Meet. The game, the rest of the extension and the Minecr
 
 ## What the extension does
 
+- **Until you click Turn on, it does nothing to Meet**: your mic, camera and the call are untouched, and nothing goes to the game. Only the badge with the button is added. Turning it on reloads the page, because the switch can only be put in place when Meet opens your mic. It stays on for that tab and that meeting only.
 - It only runs on `meet.google.com`. Firefox warns that it can "access your data for all websites" because Firefox requires that permission to take a picture of a tab, which the Meet view and the screens need. It never touches other sites.
 - It sends pictures of the call and your mic state to the game on your own computer (`127.0.0.1`). Nothing leaves your machine, and only browser extensions can connect, so a web page can't control your mic.
 - It turns your camera off once when Meet loads, so you never join on camera by surprise. You can turn it back on.

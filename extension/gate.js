@@ -9,6 +9,8 @@
 // No Web Audio on purpose: an AudioContext needs autoplay permission to run (Zen blocks it by default) and opens an
 // output stream of its own, which is one more thing for a Bluetooth headset in call mode to choke on.
 //
+// Only when you've turned MeetCraft on for the meeting (toggle.js); otherwise it does nothing at all.
+//
 // Fails closed: it starts muted, and "live" only lasts while meet.js keeps renewing it (the game resends every 500 ms),
 // so a crashed game, a dead extension or a missed message all end in silence. "off" opens it for normal Meet use.
 //
@@ -23,6 +25,12 @@
 (() => {
   // Only meaningful in the page's own world; as an ordinary content script it would only patch our private view.
   if (typeof browser !== "undefined" || document.documentElement?.hasAttribute("data-meetcraft-gate")) return;
+  // Off unless you turned MeetCraft on for this meeting in this tab (toggle.js). While off, Meet gets the real mic.
+  try {
+    if (sessionStorage.getItem("meetcraft:on") !== location.pathname) return;
+  } catch {
+    return;
+  }
 
   const LIVE_LEASE_MS = 1500;
   // Our own handles on the browser's originals, taken before any page script runs.

@@ -70,6 +70,14 @@ const GATE_ID = "meetcraft-gate";
   }
 })().catch((error) => console.error("[MeetCraft] couldn't install the mic gate:", error));
 
+// Meet tabs only get the rest of MeetCraft (meet.js) once you've turned it on there; until then toggle.js is all that runs.
+browser.runtime.onMessage.addListener((msg, sender) => {
+  if (msg.type !== "meetcraftOn" || !sender.tab) return;
+  browser.scripting
+    .executeScript({ target: { tabId: sender.tab.id, frameIds: [sender.frameId] }, files: ["meet.js"] })
+    .catch((error) => console.error("[MeetCraft] couldn't start in the Meet tab:", error));
+});
+
 function reportMeetingChat() {
   const port = activeTab();
   sendToMod({ type: "meetChat", space: (port && meetingChats.get(port)) ?? null });
