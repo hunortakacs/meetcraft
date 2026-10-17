@@ -2,5 +2,11 @@
   "block.meetcraft.screen": "Screen",
   "key.meetcraft.mic": "Meet Mic",
   "key.meetcraft.view": "Enlarge Meet View",
-  "key.meetcraft.minimap": "Show/Hide Meet Minimap"
+  "key.meetcraft.minimap": "Show/Hide Meet Minimap",
+  "key.category.meetcraft.reels": "Instagram Reels",
+  "key.meetcraft.reels.view": "Show/Hide Reels",
+  "key.meetcraft.reels.next": "Next Reel",
+  "key.meetcraft.reels.previous": "Previous Reel",
+  "key.meetcraft.reels.mute": "Mute/Unmute Reels",
+  "key.meetcraft.reels.auto": "Auto-Scroll Reels"
 }

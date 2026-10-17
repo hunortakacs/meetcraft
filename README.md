@@ -1,12 +1,13 @@
 # MeetCraft
 
-Google Meet and Google Chat inside Minecraft (Fabric 26.3):
+Google Meet, Google Chat and Instagram reels inside Minecraft (Fabric 26.3):
 
 - **Meet view**: your call as a minimap in the corner, or enlarged to most of the screen.
 - **Meet mic key**: hold **R** to talk in the call.
 - **Screens**: build a wall of Screen blocks and it shows the call the way Meet lays it out.
 - **Google Chat (`/gc`)**: read and write your Google Chat spaces and DMs from the Minecraft chat.
 - **In-game voice**: proximity voice via the bundled [Plasmo Voice](https://modrinth.com/mod/plasmo-voice).
+- **Instagram reels**: watch reels at the side of your screen, scroll them with the arrow keys or let them move on by themselves, and mute them.
 
 ## Install
 
@@ -15,6 +16,7 @@ Download both files from the [latest release](https://github.com/hunortakacs/mee
 1. In your launcher (Freesm, Prism or the official one), create a **Fabric** instance for **26.3** and put `meetcraft-<version>.jar` in its `mods/` folder. It's the only mod you need.
 2. In **Firefox** or a Firefox-based browser (Zen, LibreWolf…, version 128+), drag `meetcraft-<version>.xpi` onto the window and click *Add*. Chrome isn't supported.
 3. Open the call in Meet and click **Turn on** in the "⛏ MeetCraft" badge at the bottom left. The page reloads with MeetCraft on, and the badge shows when Minecraft is connected. It starts off again for every new meeting.
+4. For reels, also add `meetcraft-reels-<version>.xpi` the same way. It's a separate extension, so you only need it if you want Instagram in the game.
 
 Settings: *Options → MeetCraft…*.
 
@@ -26,8 +28,12 @@ Settings: *Options → MeetCraft…*.
 | **X** | Enlarge the Meet view (press again to shrink, or set it to hold) |
 | **Z** | Show or hide the small Meet view |
 | Plasmo Voice's key | Talk to players near you in the game |
+| **I** | Show or hide Instagram reels |
+| **↓** / **↑** | Next / previous reel |
+| **M** | Mute or unmute reels |
+| **N** | Auto-scroll reels on or off |
 
-Rebind them under *Controls → Multiplayer*.
+Rebind them under *Controls → Multiplayer* (the Meet keys) and *Controls → Instagram Reels*.
 
 The mic icon in the top-left is your Meet mic: green when you're live, grey and struck through when muted. While you're live in Meet, your in-game voice is muted, and it comes back as it was when you mute in Meet.
 
@@ -64,6 +70,29 @@ Your audio only goes to Meet. The game, the rest of the extension and the Minecr
 - Colour bars mean there's no feed: Meet isn't open or the extension isn't loaded.
 - Frames only flow within about 190 blocks of a screen.
 
+## Instagram reels
+
+With the MeetCraft Reels extension installed, press **I** in the game. If no Instagram tab is open, one opens in the background on the reels feed. The reel you're on shows at the right side of the screen, with a progress bar, the sound and the keys underneath.
+
+- **↓** goes to the next reel and **↑** back to the previous one, as if you'd scrolled in the tab.
+- **N** turns on auto-scroll: when a reel finishes, the next one starts by itself. Press it again to stay on one reel, which then loops as usual.
+- **M** mutes reels by muting the Instagram tab in Firefox, so it works whatever Instagram's own sound button says.
+- Pressing **I** again hides the view and pauses the reel. It also pauses when you leave the world or close the game.
+- Firefox only plays sound on a page you've clicked at least once. If the game says *No sound until you click the Instagram tab once*, click anywhere in that tab, for example when Firefox opened it for you.
+
+Side, size, sound and auto-scroll are also in *Options → MeetCraft…*. Your choices for sound and auto-scroll are remembered.
+
+Everything stays on your computer and nothing goes through the Minecraft server, so it works on any server and shows only to you. Reels don't show on Screen blocks.
+
+### What the Reels extension does
+
+- It only runs on `www.instagram.com`, and only does something while the game has the reels view open. Firefox warns that it can "access your data for all websites" for the same reason as the Meet extension: it needs that permission to take a picture of a tab.
+- While the view is open, it tells the Instagram tab that it's visible, so Instagram doesn't pause reels while Firefox is in the background. When you close the view, Instagram sees the truth again.
+- It sends pictures of the reel on screen and how far through it is to the game on your own computer (`127.0.0.1`, port 25600). Nothing else leaves the tab.
+- After installing it, reload any Instagram tab you already had open.
+
+Instagram's page isn't an API either. When reels stop showing or scrolling, start with `activeVideo()` and `step()` in [`reels-extension/reels.js`](reels-extension/reels.js).
+
 ## Google Chat: `/gc`
 
 | Command | What it does |
@@ -90,9 +119,10 @@ Behind a hostname proxy (such as DiscoPanel's), give voice its own port instead:
 ```sh
 JAVA_HOME=/usr/lib/jvm/java-25-openjdk ./gradlew build   # → build/libs/meetcraft-<version>.jar
 npx web-ext run --source-dir extension                    # Firefox with the unsigned extension
+npx web-ext run --source-dir reels-extension              # the same for the Instagram one
 ```
 
-To release the extension, bump `version` in `extension/manifest.json` (Mozilla won't sign the same version twice) and sign it on addons.mozilla.org as an unlisted add-on, either by uploading a zip of `extension/` or with `scripts/sign-extension.sh` and an AMO API key. Put the jar and the `.xpi` in a GitHub release.
+To release an extension, bump `version` in its `manifest.json` (Mozilla won't sign the same version twice) and sign it on addons.mozilla.org as an unlisted add-on, either by uploading a zip of its folder or with `scripts/sign-extension.sh` (pass `reels-extension` for the Instagram one) and an AMO API key. Put the jar and both `.xpi` files in a GitHub release.
 
 Meet's page isn't an API. When something breaks, start with `micButton()`, `stageRect()` and `meetingChatSpace()` in [`extension/meet.js`](extension/meet.js).
 

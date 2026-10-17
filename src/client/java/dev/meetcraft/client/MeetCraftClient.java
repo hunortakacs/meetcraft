@@ -37,18 +37,21 @@ public class MeetCraftClient implements ClientModInitializer {
 	private static ClientConfig config;
 	private static MicKey micKey;
 	private static MeetViewHud meetView;
+	private static ReelsHud reels;
 	private static ChatCommands commands;
 	/** Keeps Plasmo Voice muted while the Meet mic is live; does nothing without Plasmo. */
 	private Consumer<Boolean> plasmoUpdate = live -> {
 	};
 
-	private final ScreenRenderer screens = new ScreenRenderer();
+	private final VideoFeed meetVideo = new VideoFeed("video", "MeetCraft video");
+	private final VideoFeed reelsVideo = new VideoFeed("reels", "MeetCraft reels");
+	private final ScreenRenderer screens = new ScreenRenderer(meetVideo);
 	private final GoogleChat chat = new GoogleChat(new GoogleAccount());
 	private BrowserBridge bridge;
 	private volatile boolean inWorld;
 
 	static Screen settingsScreen(Screen parent) {
-		return new SettingsScreen(parent, config, micKey.mapping, meetView.mapping, meetView.minimapKey, commands::setupScreen);
+		return new SettingsScreen(parent, config, micKey.mapping, meetView.mapping, meetView.minimapKey, reels, commands::setupScreen);
 	}
 
 	/** Earlier defaults: K, J, H (out of reach with the right hand on the mouse), then R, Z, Y. */
@@ -91,8 +94,10 @@ public class MeetCraftClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		config = ClientConfig.load();
 		micKey = new MicKey();
-		bridge = new BrowserBridge(config.port, screens::acceptJpeg, chat::setMeetingSpace);
+		bridge = new BrowserBridge(config.port, meetVideo::acceptJpeg, chat::setMeetingSpace);
 		bridge.start();
+		ReelsBridge reelsBridge = new ReelsBridge(config.reelsPort, reelsVideo);
+		reelsBridge.start();
 
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.Screens.TYPE, (payload, context) -> screens.setScreens(payload.screens()));
 
@@ -116,7 +121,8 @@ public class MeetCraftClient implements ClientModInitializer {
 		ClientSendMessageEvents.MODIFY_CHAT.register(message ->
 			chat.current() != null && message.startsWith(MINECRAFT_ESCAPE) ? message.substring(MINECRAFT_ESCAPE.length()).stripLeading() : message);
 
-		meetView = new MeetViewHud(screens, bridge, config);
+		meetView = new MeetViewHud(meetVideo, bridge, config);
+		reels = new ReelsHud(reelsVideo, reelsBridge, meetView, config);
 		// The in-game mic sends nothing while the Meet one is live: from the moment the key asks for it (so the first
 		// word doesn't go to both), for as long as Meet is actually sending.
 		if (FabricLoader.getInstance().isModLoaded("plasmovoice")) {
@@ -132,10 +138,12 @@ public class MeetCraftClient implements ClientModInitializer {
 			bridge.setVideoFps(config.videoFps);
 			bridge.setWantFrames(inWorld && (screens.anyScreenNearby(client) || meetView.wantsVideo()));
 			micKey.tick(client, bridge, config.micKey);
+			reels.tick(client);
 		});
 		LevelRenderEvents.COLLECT_SUBMITS.register(screens::render);
 		HudElementRegistry.addLast(MeetCraft.id("status"), new StatusHud(bridge, chat, meetView));
 		HudElementRegistry.addLast(MeetCraft.id("mic"), new MicIconHud(bridge, meetView));
+		HudElementRegistry.addLast(MeetCraft.id("reels"), reels);
 		HudElementRegistry.addLast(MeetCraft.id("meet_view"), meetView);
 		commands = new ChatCommands(chat, () -> inWorld);
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) -> commands.register(dispatcher));
