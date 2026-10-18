@@ -77,7 +77,8 @@ final class MicIconHud implements HudElement {
 		}
 	}
 
-	private static void draw(GuiGraphicsExtractor graphics, String[] art, int x, int y, int color) {
+	/** Pixel art: each {@code #} in {@code art} is one GUI pixel of {@code color}. */
+	static void draw(GuiGraphicsExtractor graphics, String[] art, int x, int y, int color) {
 		for (int row = 0; row < art.length; row++) {
 			String line = art[row];
 			int start = -1;

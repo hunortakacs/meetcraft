@@ -21,14 +21,17 @@ final class SettingsScreen extends OptionsSubScreen {
 	private final KeyMapping micKey;
 	private final KeyMapping viewKey;
 	private final KeyMapping minimapKey;
+	private final ReelsHud reels;
 	private final UnaryOperator<Screen> googleSetup;
 
-	SettingsScreen(Screen parent, ClientConfig config, KeyMapping micKey, KeyMapping viewKey, KeyMapping minimapKey, UnaryOperator<Screen> googleSetup) {
+	SettingsScreen(Screen parent, ClientConfig config, KeyMapping micKey, KeyMapping viewKey, KeyMapping minimapKey, ReelsHud reels,
+				   UnaryOperator<Screen> googleSetup) {
 		super(parent, Minecraft.getInstance().options, Component.literal("MeetCraft"));
 		this.config = config;
 		this.micKey = micKey;
 		this.viewKey = viewKey;
 		this.minimapKey = minimapKey;
+		this.reels = reels;
 		this.googleSetup = googleSetup;
 	}
 
@@ -84,7 +87,61 @@ final class SettingsScreen extends OptionsSubScreen {
 		fps.setWidth(310);
 		fps.setTooltip(Tooltip.create(Component.literal("How often the Meet tab is captured. Higher is smoother, and works the Meet tab harder.")));
 		list.addBig(fps);
+		CycleButton<Boolean> live = CycleButton.builder(SettingsScreen::liveLabel, config.meetLiveTiles)
+			.withValues(true, false)
+			.withTooltip(on -> Tooltip.create(Component.literal(on
+				? "Cameras and presentations move at their own frame rate, drawn over a picture of the Meet page taken 10 times a second."
+				: "Every frame is a picture of the Meet page. Use this if names or tiles look wrong with live video.")))
+			.create(Component.literal("Meet video"), (button, value) -> {
+				config.meetLiveTiles = value;
+				config.save();
+			});
+		live.setWidth(310);
+		list.addBig(live);
+		addReelsOptions();
 		list.addBig(Button.builder(Component.literal("Google Chat setup…"), button -> minecraft.gui.setScreen(googleSetup.apply(this))).build());
+	}
+
+	private void addReelsOptions() {
+		CycleButton<Boolean> shown = CycleButton.builder(SettingsScreen::shownLabel, reels.isOpen())
+			.withValues(true, false)
+			.withTooltip(on -> Tooltip.create(Component.literal("Instagram reels at the side of the screen. Hidden, the reel is paused.")))
+			.create(Component.literal("Reels"), (button, value) -> reels.setOpen(value));
+		list.addSmall(shown, keyButton(reels.viewKey));
+		list.addSmall(keyButton("Next reel: ", reels.nextKey), keyButton("Previous reel: ", reels.previousKey));
+		CycleButton<Boolean> sound = CycleButton.onOffBuilder(!config.reelsMuted)
+			.withTooltip(on -> Tooltip.create(Component.literal("Whether Instagram reels play with sound. Mutes the Instagram tab in Firefox.")))
+			.create(Component.literal("Reels sound"), (button, value) -> {
+				config.reelsMuted = !value;
+				config.save();
+			});
+		list.addSmall(sound, keyButton(reels.muteKey));
+		CycleButton<Boolean> auto = CycleButton.onOffBuilder(config.reelsAuto)
+			.withTooltip(on -> Tooltip.create(Component.literal("When a reel finishes, scroll to the next one by itself, no key needed.")))
+			.create(Component.literal("Reels auto-scroll"), (button, value) -> {
+				config.reelsAuto = value;
+				config.save();
+			});
+		list.addSmall(auto, keyButton(reels.autoKey));
+		CycleButton<ClientConfig.ReelsSide> side = CycleButton.builder(SettingsScreen::sideLabel, config.reelsSide)
+			.withValues(ClientConfig.ReelsSide.values())
+			.create(Component.literal("Reels"), (button, value) -> {
+				config.reelsSide = value;
+				config.save();
+			});
+		list.addSmall(side, new IntSlider(config, ClientConfig.MIN_REELS_SIZE, ClientConfig.MAX_REELS_SIZE, config.reelsSize,
+			s -> "Reels size: " + s + "%", s -> config.reelsSize = s));
+	}
+
+	private Button keyButton(KeyMapping mapping) {
+		return keyButton("Key: ", mapping);
+	}
+
+	/** Rebinding stays in vanilla Controls, so it behaves (and conflicts) like every other key. */
+	private Button keyButton(String label, KeyMapping mapping) {
+		return Button.builder(Component.literal(label).append(mapping.getTranslatedKeyMessage()),
+				button -> minecraft.gui.setScreen(new KeyBindsScreen(this, options)))
+			.build();
 	}
 
 	/** A whole-number slider; saved when you let go, so dragging doesn't write the file on every step. */
@@ -128,6 +185,18 @@ final class SettingsScreen extends OptionsSubScreen {
 
 	private static Component viewLabel(ClientConfig.ViewKeyMode mode) {
 		return Component.literal(mode == ClientConfig.ViewKeyMode.HOLD ? "Hold" : "Toggle");
+	}
+
+	private static Component liveLabel(boolean live) {
+		return Component.literal(live ? "Live" : "Pictures of the page");
+	}
+
+	private static Component shownLabel(boolean shown) {
+		return Component.literal(shown ? "Shown" : "Hidden");
+	}
+
+	private static Component sideLabel(ClientConfig.ReelsSide side) {
+		return Component.literal(side == ClientConfig.ReelsSide.LEFT ? "Left side" : "Right side");
 	}
 
 	private static Component cornerLabel(ClientConfig.MinimapCorner corner) {

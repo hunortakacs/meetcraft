@@ -1,0 +1,39 @@
+{
+  "manifest_version": 2,
+  "name": "MeetCraft Reels",
+  "version": "0.1.0",
+  "description": "Connects your Instagram tab to the MeetCraft Minecraft mod: watch, scroll and mute reels from inside the game.",
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": true
+  },
+  "permissions": [
+    "https://www.instagram.com/*",
+    "<all_urls>",
+    "scripting"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.instagram.com/*"
+      ],
+      "js": [
+        "reels.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "meetcraft-reels@meetcraft.dev",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

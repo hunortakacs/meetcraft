@@ -1,17 +1,10 @@
 package dev.meetcraft.client;
 
-import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.meetcraft.MeetCraft;
 import dev.meetcraft.ScreenDef;
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
 import java.util.List;
-import java.util.zip.CRC32;
-import java.util.concurrent.atomic.AtomicReference;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -21,55 +14,20 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
-import org.jspecify.annotations.Nullable;
-import org.lwjgl.stb.STBImage;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
 
 /** Draws the latest Meet frame onto every theatre screen in the current dimension. */
 public final class ScreenRenderer {
-	/**
-	 * The video texture alternates between two names: when the frame size changes, the new one goes up under the other
-	 * name and the old one is only freed on the next frame, because something drawn this frame may still use it.
-	 */
-	private static final Identifier[] VIDEO_IDS = {MeetCraft.id("dynamic/video_a"), MeetCraft.id("dynamic/video_b")};
-	private int videoSlot;
-	private @Nullable Identifier retired;
 	private static final Identifier BACKDROP = MeetCraft.id("dynamic/backdrop");
 	private static final Identifier NO_SIGNAL = MeetCraft.id("dynamic/no_signal");
 	private static final double RENDER_DISTANCE = 192;
-	/** Frames older than this are treated as a lost signal. */
-	private static final long SIGNAL_TIMEOUT_MS = 3000;
 
-	private record Frame(int width, int height, ByteBuffer rgba) {
-		void free() {
-			STBImage.stbi_image_free(rgba);
-		}
-	}
-
-	/** Linear filtering instead of the default nearest, so video looks smooth rather than blocky up close. */
-	private static final class VideoTexture extends DynamicTexture {
-		VideoTexture(int width, int height) {
-			super(() -> "MeetCraft video", width, height, false);
-			this.sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
-		}
-	}
-
-	private final AtomicReference<@Nullable Frame> pending = new AtomicReference<>();
+	private final VideoFeed video;
 	private volatile List<ScreenDef> screens = List.of();
-	private @Nullable DynamicTexture video;
 	private boolean staticTexturesReady;
-	private volatile long lastFrameAt;
-	private volatile boolean warnedUndecodable;
 
-	// Frame rates over the last second: everything that arrived, and how much of it was a new picture. The browser
-	// captures at a steady rate, but Meet's own video (screen shares especially) often changes far less often.
-	private long lastChecksum;
-	private int received;
-	private int fresh;
-	private long windowStart = System.currentTimeMillis();
-	private volatile int receivedPerSecond;
-	private volatile int freshPerSecond;
+	ScreenRenderer(VideoFeed video) {
+		this.video = video;
+	}
 
 	public void setScreens(List<ScreenDef> screens) {
 		this.screens = List.copyOf(screens);
@@ -92,41 +50,6 @@ public final class ScreenRenderer {
 		return false;
 	}
 
-	/** Called on the WebSocket thread; decoding here keeps JPEG work off the render thread. */
-	public void acceptJpeg(ByteBuffer jpeg) {
-		CRC32 crc = new CRC32();
-		crc.update(jpeg.duplicate());
-		boolean repeat = crc.getValue() == lastChecksum;
-		lastChecksum = crc.getValue();
-		countFrame(repeat);
-		if (repeat) {
-			// Same bytes, same picture: keep showing the one we have, just note the signal is still alive.
-			lastFrameAt = System.currentTimeMillis();
-			return;
-		}
-		ByteBuffer direct = MemoryUtil.memAlloc(jpeg.remaining());
-		try (MemoryStack stack = MemoryStack.stackPush()) {
-			direct.put(jpeg).flip();
-			IntBuffer w = stack.mallocInt(1);
-			IntBuffer h = stack.mallocInt(1);
-			IntBuffer channels = stack.mallocInt(1);
-			ByteBuffer rgba = STBImage.stbi_load_from_memory(direct, w, h, channels, 4);
-			if (rgba == null) {
-				if (!warnedUndecodable) {
-					warnedUndecodable = true;
-					MeetCraft.LOGGER.warn("Dropping Meet frames that aren't valid JPEG: {}", STBImage.stbi_failure_reason());
-				}
-				return;
-			}
-			Frame stale = pending.getAndSet(new Frame(w.get(0), h.get(0), rgba));
-			if (stale != null) {
-				stale.free();
-			}
-		} finally {
-			MemoryUtil.memFree(direct);
-		}
-	}
-
 	public void render(LevelRenderContext context) {
 		List<ScreenDef> screens = this.screens;
 		Minecraft mc = Minecraft.getInstance();
@@ -134,11 +57,11 @@ public final class ScreenRenderer {
 			return;
 		}
 		ensureStaticTextures(mc);
-		uploadPendingFrame(mc);
+		video.upload(mc);
 
 		String dimension = mc.level.dimension().identifier().toString();
 		Vec3 camera = context.levelState().cameraRenderState.pos;
-		boolean live = video != null && System.currentTimeMillis() - lastFrameAt < SIGNAL_TIMEOUT_MS;
+		int[] size = video.liveSize();
 		SubmitNodeCollector collector = context.submitNodeCollector();
 		PoseStack poseStack = context.poseStack();
 
@@ -148,10 +71,9 @@ public final class ScreenRenderer {
 			}
 			collector.submitCustomGeometry(poseStack, RenderTypes.text(BACKDROP),
 				(pose, buffer) -> quad(pose, buffer, screen, camera, 0.01, 0, 0, 1, 1));
-			if (live) {
-				NativeImage pixels = video.getPixels();
-				float[] r = letterbox(screen.width() / (float) screen.height(), pixels.getWidth() / (float) pixels.getHeight());
-				collector.submitCustomGeometry(poseStack, RenderTypes.text(videoId()),
+			if (size != null) {
+				float[] r = letterbox(screen.width() / (float) screen.height(), size[0] / (float) size[1]);
+				collector.submitCustomGeometry(poseStack, RenderTypes.text(video.id()),
 					(pose, buffer) -> quad(pose, buffer, screen, camera, 0.02, r[0], r[1], r[2], r[3]));
 			} else {
 				collector.submitCustomGeometry(poseStack, RenderTypes.text(NO_SIGNAL),
@@ -178,66 +100,6 @@ public final class ScreenRenderer {
 		noSignal.upload();
 		mc.getTextureManager().register(NO_SIGNAL, noSignal);
 		staticTexturesReady = true;
-	}
-
-	/** WebSocket thread only, like acceptJpeg. */
-	private void countFrame(boolean repeat) {
-		long now = System.currentTimeMillis();
-		if (now - windowStart >= 1000) {
-			receivedPerSecond = received;
-			freshPerSecond = fresh;
-			received = 0;
-			fresh = 0;
-			windowStart = now;
-		}
-		received++;
-		if (!repeat) {
-			fresh++;
-		}
-	}
-
-	/** {frames arriving per second, of which new pictures}; zeros once the video has stopped. */
-	int[] frameRates() {
-		return liveVideoSize() == null ? new int[] {0, 0} : new int[] {receivedPerSecond, freshPerSecond};
-	}
-
-	/** The latest Meet frame's size, or null when there's no live video (none yet, or none for a few seconds). */
-	@Nullable int[] liveVideoSize() {
-		if (video == null || System.currentTimeMillis() - lastFrameAt >= SIGNAL_TIMEOUT_MS) {
-			return null;
-		}
-		return new int[] {video.getPixels().getWidth(), video.getPixels().getHeight()};
-	}
-
-	/** Puts the newest decoded frame into the video texture. Render thread; both the screens and the minimap call it. */
-	/** Where the current video frame is; render thread. */
-	Identifier videoId() {
-		return VIDEO_IDS[videoSlot];
-	}
-
-	void uploadPendingFrame(Minecraft mc) {
-		if (retired != null) {
-			mc.getTextureManager().release(retired);
-			retired = null;
-		}
-		Frame frame = pending.getAndSet(null);
-		if (frame == null) {
-			return;
-		}
-		try {
-			if (video == null || video.getPixels().getWidth() != frame.width() || video.getPixels().getHeight() != frame.height()) {
-				video = new VideoTexture(frame.width(), frame.height());
-				retired = VIDEO_IDS[videoSlot];
-				videoSlot = 1 - videoSlot;
-				mc.getTextureManager().register(VIDEO_IDS[videoSlot], video);
-			}
-			// stb and NativeImage both use tightly packed RGBA bytes, so one memcpy is enough.
-			MemoryUtil.memCopy(MemoryUtil.memAddress(frame.rgba()), video.getPixels().getPointer(), (long) frame.width() * frame.height() * 4);
-			video.upload();
-			lastFrameAt = System.currentTimeMillis();
-		} finally {
-			frame.free();
-		}
 	}
 
 	/** Fits content of aspect {@code content} centred inside a screen of aspect {@code screen}; returns u0, v0, u1, v1. */

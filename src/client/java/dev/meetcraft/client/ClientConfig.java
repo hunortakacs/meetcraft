@@ -32,6 +32,11 @@ final class ClientConfig {
 		TOGGLE
 	}
 
+	enum ReelsSide {
+		LEFT,
+		RIGHT
+	}
+
 	static final int MAX_CORNER_RADIUS = 16;
 
 	/** Which default key layout this config has been brought up to (see MeetCraftClient.updateDefaultKeys). */
@@ -50,8 +55,25 @@ final class ClientConfig {
 
 	/** How many frames per second the browser captures of the call. */
 	int videoFps = 30;
+	/**
+	 * The call's videos drawn live over a picture of the Meet page taken a few times a second, instead of every frame
+	 * being a picture of the page. Smoother, but it relies on more guesses about Meet's page.
+	 */
+	boolean meetLiveTiles = true;
 	/** Corner rounding of the Meet view in GUI pixels (0 = square); the enlarged view rounds a bit more. */
 	int cornerRadius = 6;
+
+	/** Where the MeetCraft Reels extension connects (Instagram); separate from the Meet extension's port. */
+	int reelsPort = 25600;
+	/** Instagram reels play without sound. */
+	boolean reelsMuted = false;
+	/** When a reel finishes, scroll to the next one without a key press. */
+	boolean reelsAuto = false;
+	ReelsSide reelsSide = ReelsSide.RIGHT;
+	static final int MIN_REELS_SIZE = 30;
+	static final int MAX_REELS_SIZE = 95;
+	/** Height of the reels view, in percent of the screen's. */
+	int reelsSize = 70;
 
 	private static Path file() {
 		return FabricLoader.getInstance().getConfigDir().resolve("meetcraft-client.json");
@@ -73,6 +95,10 @@ final class ClientConfig {
 				if (config.minimapCorner == null) {
 					config.minimapCorner = MinimapCorner.TOP_LEFT;
 				}
+				if (config.reelsSide == null) {
+					config.reelsSide = ReelsSide.RIGHT;
+				}
+				config.reelsSize = Math.clamp(config.reelsSize, MIN_REELS_SIZE, MAX_REELS_SIZE);
 				return config;
 			}
 		} catch (Exception e) {
