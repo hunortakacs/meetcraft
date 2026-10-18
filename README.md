@@ -77,18 +77,19 @@ With the MeetCraft Reels extension installed, press **I** in the game. If no Ins
 - **↓** goes to the next reel and **↑** back to the previous one, as if you'd scrolled in the tab.
 - **N** turns on auto-scroll: when a reel finishes, the next one starts by itself. Press it again to stay on one reel, which then loops as usual.
 - **M** mutes reels by muting the Instagram tab in Firefox, so it works whatever Instagram's own sound button says.
-- Pressing **I** again hides the view and pauses the reel. It also pauses when you leave the world or close the game.
+- Pressing **I** again hides the view and pauses the reel. It also pauses while the Meet view is enlarged (**X**), and when you leave the world or close the game.
 - Firefox only plays sound on a page you've clicked at least once. If the game says *No sound until you click the Instagram tab once*, click anywhere in that tab, for example when Firefox opened it for you.
 
-Side, size, sound and auto-scroll are also in *Options → MeetCraft…*. Your choices for sound and auto-scroll are remembered.
+Showing the reels, side, size, sound and auto-scroll are also in *Options → MeetCraft…*, along with all the reels keys. Your choices for sound and auto-scroll are remembered.
 
 Everything stays on your computer and nothing goes through the Minecraft server, so it works on any server and shows only to you. Reels don't show on Screen blocks.
 
 ### What the Reels extension does
 
-- It only runs on `www.instagram.com`, and only does something while the game has the reels view open. Firefox warns that it can "access your data for all websites" for the same reason as the Meet extension: it needs that permission to take a picture of a tab.
+- It only runs on `www.instagram.com`, and only does something while the game has the reels view open. Firefox warns that it can "access your data for all websites" for the same reason as the Meet extension: it needs that permission to read the video and, as a fallback, to take a picture of a tab.
 - While the view is open, it tells the Instagram tab that it's visible, so Instagram doesn't pause reels while Firefox is in the background. When you close the view, Instagram sees the truth again.
-- It sends pictures of the reel on screen and how far through it is to the game on your own computer (`127.0.0.1`, port 25600). Nothing else leaves the tab.
+- While the view is open, the Instagram page also holds a WebRTC connection to itself, because Firefox doesn't slow down background tabs that have one, and otherwise new reels stop loading after a couple of minutes. No camera or microphone is involved and nothing leaves your computer. If reels still stop loading in the background, set `dom.timeout.enable_budget_timer_throttling` to `false` in `about:config`.
+- It sends the frames of the reel on screen, read straight from Instagram's video player, and how far through it is to the game on your own computer (`127.0.0.1`, port 25600). Nothing else leaves the tab. Only if Firefox won't let it read a video does it take pictures of the tab instead, which is slower and includes Instagram's buttons.
 - After installing it, reload any Instagram tab you already had open.
 
 Instagram's page isn't an API either. When reels stop showing or scrolling, start with `activeVideo()` and `step()` in [`reels-extension/reels.js`](reels-extension/reels.js).

@@ -71,6 +71,8 @@ final class ReelsHud implements HudElement {
 	private final MeetViewHud meetView;
 	private final ClientConfig config;
 	private boolean open;
+	/** How tall the reel was last drawn, in screen pixels: the size the extension should send frames at. */
+	private volatile int drawnHeight;
 
 	ReelsHud(VideoFeed video, ReelsBridge bridge, MeetViewHud meetView, ClientConfig config) {
 		this.video = video;
@@ -83,9 +85,20 @@ final class ReelsHud implements HudElement {
 		return KeyMappingHelper.registerKeyMapping(new KeyMapping("key.meetcraft.reels." + name, defaultKey, CATEGORY));
 	}
 
+	boolean isOpen() {
+		return open;
+	}
+
+	/** Shows or hides the reels; hidden, the reel is paused. */
+	void setOpen(boolean open) {
+		this.open = open;
+	}
+
 	void tick(Minecraft mc) {
 		while (viewKey.consumeClick()) {
 			open = !open;
+			String key = viewKey.getTranslatedKeyMessage().getString();
+			overlay(mc, open ? "Reels shown: " + key + " to hide" : "Reels hidden and paused: " + key + " to show");
 			if (open) {
 				warnIfDisconnected(mc);
 			}
@@ -112,12 +125,15 @@ final class ReelsHud implements HudElement {
 			config.save();
 			overlay(mc, config.reelsAuto ? "Reels auto-scroll on: the next one plays when a reel ends" : "Reels auto-scroll off");
 		}
-		bridge.setState(viewing(mc), config.videoFps, config.reelsMuted, config.reelsAuto);
+		bridge.setState(viewing(mc), config.videoFps, drawnHeight, config.reelsMuted, config.reelsAuto);
 	}
 
-	/** While this is true the reel plays and its frames come in; otherwise the extension pauses it. */
+	/**
+	 * While this is true the reel plays and its frames come in; otherwise the extension pauses it. Enlarging the Meet
+	 * view counts as looking away: the call has your attention, so the reel waits until you shrink it again.
+	 */
 	private boolean viewing(Minecraft mc) {
-		return open && mc.player != null;
+		return open && mc.player != null && !meetView.isEnlarged();
 	}
 
 	private void warnIfDisconnected(Minecraft mc) {
@@ -135,7 +151,7 @@ final class ReelsHud implements HudElement {
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker) {
 		Minecraft mc = Minecraft.getInstance();
-		// The enlarged Meet view covers most of the screen anyway; the reel carries on behind it.
+		// The enlarged Meet view covers most of the screen, and the reel is paused meanwhile (see viewing).
 		if (!open || mc.getConnection() == null || mc.getDebugOverlay().showDebugScreen() || meetView.isEnlarged()) {
 			return;
 		}
@@ -166,6 +182,8 @@ final class ReelsHud implements HudElement {
 			w = guiWidth / 2;
 			h = Math.round(w / aspect);
 		}
+		// In steps, so resizing the window doesn't send a new size every frame.
+		drawnHeight = (h * mc.getWindow().getGuiScale() + 63) / 64 * 64;
 		int x = left ? MARGIN : guiWidth - w - MARGIN;
 		// Centred on the screen when there's room, else as high as allowed.
 		int y = Math.max(top, (guiHeight - h - STRIP) / 2);
@@ -209,9 +227,17 @@ final class ReelsHud implements HudElement {
 			graphics.text(mc.font, "auto", textX, rowY, AUTO);
 			textX += mc.font.width("auto") + 6;
 		}
+		if (size != null) {
+			// New pictures per second, and the reel's own rate when that's clearly more: then frames are being lost.
+			int got = video.frameRates()[1];
+			String fps = (reel.fps() > got + 1 ? got + "/" + reel.fps() : String.valueOf(got)) + " fps";
+			graphics.text(mc.font, fps, textX, rowY, HINT);
+			textX += mc.font.width(fps) + 6;
+		}
 		String next = nextKey.getTranslatedKeyMessage().getString();
 		String previous = previousKey.getTranslatedKeyMessage().getString();
-		for (String hint : new String[] {next + " next · " + previous + " back", next + " next"}) {
+		String hide = viewKey.getTranslatedKeyMessage().getString();
+		for (String hint : new String[] {next + " next · " + previous + " back · " + hide + " hide", next + " next · " + hide + " hide", hide + " hide"}) {
 			if (textX + mc.font.width(hint) <= x + w) {
 				graphics.text(mc.font, hint, x + w - mc.font.width(hint), rowY, HINT);
 				break;

@@ -1,11 +1,13 @@
-// Relays between Instagram tabs (reels.js) and the Minecraft mod (WebSocket on localhost), and captures the reel on
-// screen for the game. Like the Meet extension's, the socket and the frame clock live in this persistent background
-// page: Instagram's CSP doesn't apply here, and its timers aren't throttled the way a background tab's are.
+// Relays between Instagram tabs (reels.js) and the Minecraft mod (WebSocket on localhost), frames included. Like the
+// Meet extension's, the socket and the frame clock live in this persistent background page: Instagram's CSP doesn't
+// apply here, and its timers aren't throttled the way a background tab's are.
 
 const MOD_URL = "ws://127.0.0.1:25600";
 const REELS_URL = "https://www.instagram.com/reels/";
 const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
-/** Longest side of a frame; reels are tall, so this is the height. */
+/** How often the watched tab is asked for a frame: twice the usual 30 fps of a reel, so none is missed or late. */
+const FRAME_ASK_HZ = 60;
+/** For the fallback, pictures of the tab (see captureReel). */
 const MAX_FRAME_SIDE = 960;
 const JPEG_QUALITY = 70;
 /** After opening an Instagram tab for the game, give it this long to load before opening another. */
@@ -13,8 +15,8 @@ const OPEN_GRACE_MS = 30000;
 
 let ws = null;
 let everConnected = false;
-/** What the game wants: the view open (reel playing, frames flowing), frame rate, sound off, auto-scroll. */
-const game = { view: false, fps: 30, muted: false, auto: false };
+/** What the game wants: the view open (reel playing, frames flowing), frame rate (fallback only), sound off, auto-scroll. */
+const game = { view: false, fps: 30, height: 0, muted: false, auto: false };
 /** Open Instagram tabs, mapped to what each last reported (null until it does). */
 const tabs = new Map();
 /** The tab the game is watching; it stays the one until it goes away or another is clearly better. */
@@ -35,7 +37,7 @@ function sendToMod(msg) {
 /** A tab on the reels feed beats any other Instagram page, and one showing a video beats one that isn't. */
 function score(port) {
   const report = tabs.get(port);
-  return (report?.reelsPage ? 2 : 0) + (report?.rect ? 1 : 0);
+  return (report?.reelsPage ? 2 : 0) + (report?.video ? 1 : 0);
 }
 
 function chooseActive() {
@@ -51,7 +53,14 @@ function chooseActive() {
 function pushState() {
   const on = connected();
   for (const port of tabs.keys()) {
-    port.postMessage({ type: "state", connected: on, view: on && game.view && port === active, muted: game.muted, auto: game.auto });
+    port.postMessage({
+      type: "state",
+      connected: on,
+      view: on && game.view && port === active,
+      height: game.height,
+      muted: game.muted,
+      auto: game.auto,
+    });
   }
   syncTabMute();
 }
@@ -92,6 +101,7 @@ function reportReel() {
     soundBlocked: !!report?.soundBlocked,
     time: report?.time ?? 0,
     duration: report?.duration ?? 0,
+    fps: report?.fps ?? 0,
   });
 }
 
@@ -101,6 +111,21 @@ setInterval(() => {
   if (!connected()) return;
   for (const port of tabs.keys()) port.postMessage({ type: "tick" });
 }, 250);
+
+function watching() {
+  return game.view && active !== null && connected();
+}
+
+// The frame clock: the watched tab answers with a frame whenever its reel has a new one.
+setInterval(() => {
+  if (watching() && !tabs.get(active)?.canvasBlocked) active.postMessage({ type: "frame" });
+}, 1000 / FRAME_ASK_HZ);
+
+function sendFrame(jpeg) {
+  if (!connected() || ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+  ws.send(jpeg);
+  framesSent++;
+}
 
 // The same Firefox penalty on failing WebSockets as in the Meet extension: probe with plain HTTP (the mod's socket
 // answers it with a 404) and only open the WebSocket once Minecraft is there.
@@ -126,6 +151,7 @@ async function connect() {
       game.view = !!msg.view;
       game.muted = !!msg.muted;
       game.auto = !!msg.auto;
+      game.height = typeof msg.height === "number" ? msg.height : 0;
       if (typeof msg.fps === "number") game.fps = Math.min(30, Math.max(1, msg.fps));
       pushState();
       openReelsIfNone();
@@ -150,6 +176,12 @@ browser.runtime.onConnect.addListener((port) => {
   chooseActive();
   pushState();
   port.onMessage.addListener((msg) => {
+    if (msg.type === "frame") {
+      if (port === active && game.view) sendFrame(msg.jpeg);
+      encodeMs += msg.encodeMs ?? 0;
+      encodes++;
+      return;
+    }
     if (msg.type !== "reel") return;
     tabs.set(port, msg);
     chooseActive();
@@ -180,14 +212,25 @@ const VISIBLE_ID = "meetcraft-reels-visible";
 
 // What's flowing, for the Inspect console when the game shows no reel.
 let framesSent = 0;
+let encodes = 0;
+let encodeMs = 0;
 setInterval(() => {
-  if (game.view && connected()) console.debug(`[MeetCraft Reels] ${framesSent / 10} frames/s to Minecraft`);
+  if (game.view && connected()) {
+    const reelFps = tabs.get(active)?.fps;
+    const avg = encodes ? (encodeMs / encodes).toFixed(1) : "-";
+    console.debug(`[MeetCraft Reels] ${framesSent / 10} frames/s to Minecraft (reel: ${reelFps || "?"} fps), ${avg} ms per frame in the tab`);
+  }
   framesSent = 0;
+  encodes = 0;
+  encodeMs = 0;
 }, 10000);
 
 let lastCaptureError = "";
 
-/** Takes the reel straight from the rendered tab; Firefox renders it for us even while the tab is in the background. */
+/**
+ * The fallback, for a reel whose pixels the page won't give us: a picture of that part of the rendered tab, which
+ * Firefox takes even while the tab is in the background. Slower, and with Instagram's buttons on top.
+ */
 async function captureReel(port) {
   const rect = tabs.get(port)?.rect;
   if (!rect) return null;
@@ -209,15 +252,12 @@ async function captureLoop() {
 }
 
 async function captureOnce() {
-  if (!game.view || !active || !connected()) return;
+  if (!watching() || !tabs.get(active)?.canvasBlocked) return;
   if (captureInFlight || ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
   captureInFlight = true;
   try {
     const frame = await captureReel(active);
-    if (frame && connected()) {
-      ws.send(frame);
-      framesSent++;
-    }
+    if (frame) sendFrame(frame);
   } catch (error) {
     if (String(error) !== lastCaptureError) console.warn("[MeetCraft Reels] couldn't capture the Instagram tab:", error);
     lastCaptureError = String(error);

@@ -92,6 +92,12 @@ final class SettingsScreen extends OptionsSubScreen {
 	}
 
 	private void addReelsOptions() {
+		CycleButton<Boolean> shown = CycleButton.builder(SettingsScreen::shownLabel, reels.isOpen())
+			.withValues(true, false)
+			.withTooltip(on -> Tooltip.create(Component.literal("Instagram reels at the side of the screen. Hidden, the reel is paused.")))
+			.create(Component.literal("Reels"), (button, value) -> reels.setOpen(value));
+		list.addSmall(shown, keyButton(reels.viewKey));
+		list.addSmall(keyButton("Next reel: ", reels.nextKey), keyButton("Previous reel: ", reels.previousKey));
 		CycleButton<Boolean> sound = CycleButton.onOffBuilder(!config.reelsMuted)
 			.withTooltip(on -> Tooltip.create(Component.literal("Whether Instagram reels play with sound. Mutes the Instagram tab in Firefox.")))
 			.create(Component.literal("Reels sound"), (button, value) -> {
@@ -116,9 +122,13 @@ final class SettingsScreen extends OptionsSubScreen {
 			s -> "Reels size: " + s + "%", s -> config.reelsSize = s));
 	}
 
-	/** Rebinding stays in vanilla Controls, so it behaves (and conflicts) like every other key. */
 	private Button keyButton(KeyMapping mapping) {
-		return Button.builder(Component.literal("Key: ").append(mapping.getTranslatedKeyMessage()),
+		return keyButton("Key: ", mapping);
+	}
+
+	/** Rebinding stays in vanilla Controls, so it behaves (and conflicts) like every other key. */
+	private Button keyButton(String label, KeyMapping mapping) {
+		return Button.builder(Component.literal(label).append(mapping.getTranslatedKeyMessage()),
 				button -> minecraft.gui.setScreen(new KeyBindsScreen(this, options)))
 			.build();
 	}
@@ -164,6 +174,10 @@ final class SettingsScreen extends OptionsSubScreen {
 
 	private static Component viewLabel(ClientConfig.ViewKeyMode mode) {
 		return Component.literal(mode == ClientConfig.ViewKeyMode.HOLD ? "Hold" : "Toggle");
+	}
+
+	private static Component shownLabel(boolean shown) {
+		return Component.literal(shown ? "Shown" : "Hidden");
 	}
 
 	private static Component sideLabel(ClientConfig.ReelsSide side) {
