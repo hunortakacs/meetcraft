@@ -60,6 +60,7 @@ Your audio only goes to Meet. The game, the rest of the extension and the Minecr
 - **Until you click Turn on, it does nothing to Meet**: your mic, camera and the call are untouched, and nothing goes to the game. Only the badge with the button is added. Turning it on reloads the page, because the switch can only be put in place when Meet opens your mic. It stays on for that tab and that meeting only.
 - It only runs on `meet.google.com`. Firefox warns that it can "access your data for all websites" because Firefox requires that permission to take a picture of a tab, which the Meet view and the screens need. It never touches other sites.
 - It sends pictures of the call and your mic state to the game on your own computer (`127.0.0.1`). Nothing leaves your machine, and only browser extensions can connect, so a web page can't control your mic.
+- The call's cameras and presentations are drawn live, at their own frame rate, over a picture of the Meet page taken 10 times a second; names and icons on top of the videos come from that picture. If tiles or names ever look wrong, set *Options → MeetCraft… → Meet video* to *Pictures of the page*, which sends whole pictures of the page as before.
 - It turns your camera off once when Meet loads, so you never join on camera by surprise. You can turn it back on.
 
 ## Screens

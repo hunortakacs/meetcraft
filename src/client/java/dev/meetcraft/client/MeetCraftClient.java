@@ -136,6 +136,7 @@ public class MeetCraftClient implements ClientModInitializer {
 			plasmoUpdate.accept(meetMicLive());
 			meetView.tick();
 			bridge.setVideoFps(config.videoFps);
+			bridge.setLiveTiles(config.meetLiveTiles);
 			bridge.setWantFrames(inWorld && (screens.anyScreenNearby(client) || meetView.wantsVideo()));
 			micKey.tick(client, bridge, config.micKey);
 			reels.tick(client);

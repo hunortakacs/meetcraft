@@ -87,6 +87,17 @@ final class SettingsScreen extends OptionsSubScreen {
 		fps.setWidth(310);
 		fps.setTooltip(Tooltip.create(Component.literal("How often the Meet tab is captured. Higher is smoother, and works the Meet tab harder.")));
 		list.addBig(fps);
+		CycleButton<Boolean> live = CycleButton.builder(SettingsScreen::liveLabel, config.meetLiveTiles)
+			.withValues(true, false)
+			.withTooltip(on -> Tooltip.create(Component.literal(on
+				? "Cameras and presentations move at their own frame rate, drawn over a picture of the Meet page taken 10 times a second."
+				: "Every frame is a picture of the Meet page. Use this if names or tiles look wrong with live video.")))
+			.create(Component.literal("Meet video"), (button, value) -> {
+				config.meetLiveTiles = value;
+				config.save();
+			});
+		live.setWidth(310);
+		list.addBig(live);
 		addReelsOptions();
 		list.addBig(Button.builder(Component.literal("Google Chat setup…"), button -> minecraft.gui.setScreen(googleSetup.apply(this))).build());
 	}
@@ -174,6 +185,10 @@ final class SettingsScreen extends OptionsSubScreen {
 
 	private static Component viewLabel(ClientConfig.ViewKeyMode mode) {
 		return Component.literal(mode == ClientConfig.ViewKeyMode.HOLD ? "Hold" : "Toggle");
+	}
+
+	private static Component liveLabel(boolean live) {
+		return Component.literal(live ? "Live" : "Pictures of the page");
 	}
 
 	private static Component shownLabel(boolean shown) {

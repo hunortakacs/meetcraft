@@ -9,6 +9,17 @@ const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const MAX_FRAME_WIDTH = 960;
 const JPEG_QUALITY = 70;
 
+/**
+ * Live tiles (the game's "Meet video" setting): the Meet tab puts each frame together itself, drawing the call's videos
+ * at their full frame rate over a picture of the page taken only this often (see meet.js). Off, every frame is a
+ * picture of the page, as before.
+ */
+let liveTiles = true;
+const LAYOUT_FPS = 10;
+let lastLayoutAt = 0;
+/** Meet tabs that couldn't draw their videos themselves; they get whole pictures of the page instead. */
+const liveFailed = new Set();
+
 let ws = null;
 let everConnected = false;
 let wantFrames = false;
@@ -118,6 +129,7 @@ async function connect() {
     } else if (msg.type === "frames") {
       wantFrames = msg.on;
       if (typeof msg.fps === "number") fps = Math.min(30, Math.max(1, msg.fps));
+      if (typeof msg.live === "boolean") liveTiles = msg.live;
       broadcastStatus();
     }
   };
@@ -146,6 +158,11 @@ chrome.runtime.onConnect.addListener((port) => {
       if (port === activeTab()) reportMeetingChat();
     } else if (msg.type === "stage") {
       stages.set(port, msg.rect);
+    } else if (msg.type === "frame") {
+      // A frame the tab put together (live tiles).
+      if (wantFrames && port === activeTab()) sendFrame(msg.jpeg);
+    } else if (msg.type === "liveFailed") {
+      liveFailed.add(port);
     }
   });
   port.onDisconnect.addListener(() => {
@@ -153,20 +170,24 @@ chrome.runtime.onConnect.addListener((port) => {
     micPaths.delete(port);
     meetingChats.delete(port);
     stages.delete(port);
+    liveFailed.delete(port);
     reportMic();
   });
 });
 
 // What's flowing, for the Inspect console when the screen stays on colour bars.
 let framesSent = 0;
+let captures = 0;
 let captureMs = 0;
 let captureMaxMs = 0;
 setInterval(() => {
   if (wantFrames) {
-    const avg = framesSent ? Math.round(captureMs / framesSent) : 0;
-    console.debug(`[MeetCraft] ${framesSent / 10} frames/s to Minecraft, capture ${avg} ms avg / ${Math.round(captureMaxMs)} ms max`);
+    const avg = captures ? Math.round(captureMs / captures) : 0;
+    const how = liveTiles && !liveFailed.has(activeTab()) ? "live tiles" : "pictures of the page";
+    console.debug(`[MeetCraft] ${framesSent / 10} frames/s to Minecraft (${how}), ${captures / 10} captures/s at ${avg} ms avg / ${Math.round(captureMaxMs)} ms max`);
   }
   framesSent = 0;
+  captures = 0;
   captureMs = 0;
   captureMaxMs = 0;
 }, 10000);
@@ -187,7 +208,13 @@ async function captureStage(port) {
     rect: { x, y, width, height },
     scale: Math.min(dpr, MAX_FRAME_WIDTH / width),
   });
-  return (await fetch(url)).arrayBuffer();
+  return { frame: await (await fetch(url)).arrayBuffer(), stage };
+}
+
+function sendFrame(frame) {
+  if (ws?.readyState !== WebSocket.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+  ws.send(frame);
+  framesSent++;
 }
 
 // The frame clock lives here because this page is never throttled, unlike a Meet tab in the background. Each frame
@@ -200,18 +227,27 @@ async function captureLoop() {
 
 async function captureOnce() {
   const port = activeTab();
-  if (!wantFrames || !port || ws?.readyState !== WebSocket.OPEN) return;
-  if (captureInFlight || ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+  if (!wantFrames || !port || ws?.readyState !== WebSocket.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+  const live = liveTiles && !liveFailed.has(port);
+  // Live: the tab puts this frame together from its videos and the latest picture of the page, which only needs
+  // taking a few times a second (for names, avatars, the speaking ring and the like).
+  if (live) {
+    port.postMessage({ type: "compose" });
+    if (performance.now() - lastLayoutAt < 1000 / LAYOUT_FPS) return;
+  }
+  if (captureInFlight) return;
   captureInFlight = true;
   const started = performance.now();
+  if (live) lastLayoutAt = started;
   try {
-    const frame = await captureStage(port);
-    if (frame && ws?.readyState === WebSocket.OPEN) {
-      ws.send(frame);
-      framesSent++;
+    const shot = await captureStage(port);
+    if (shot) {
+      if (live) port.postMessage({ type: "layout", jpeg: shot.frame, stage: shot.stage });
+      else sendFrame(shot.frame);
       const took = performance.now() - started;
       captureMs += took;
       captureMaxMs = Math.max(captureMaxMs, took);
+      captures++;
     }
   } catch (error) {
     if (String(error) !== lastCaptureError) console.warn("[MeetCraft] couldn't capture the Meet tab:", error);

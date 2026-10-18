@@ -17,6 +17,7 @@ public final class BrowserBridge extends ExtensionServer {
 	private volatile boolean wantFrames;
 	private volatile boolean framesArriving;
 	private volatile int videoFps = 30;
+	private volatile boolean liveTiles = true;
 
 	public BrowserBridge(int port, Consumer<ByteBuffer> onFrame, Consumer<@Nullable String> onMeetingChat) {
 		super("Meet", port);
@@ -58,6 +59,14 @@ public final class BrowserBridge extends ExtensionServer {
 		}
 	}
 
+	/** Whether the extension draws the call's videos live over a slower picture of the page (see meet.js). */
+	public void setLiveTiles(boolean live) {
+		if (live != liveTiles) {
+			liveTiles = live;
+			sendFramesRequest();
+		}
+	}
+
 	public void setWantFrames(boolean want) {
 		if (want != wantFrames) {
 			wantFrames = want;
@@ -72,6 +81,7 @@ public final class BrowserBridge extends ExtensionServer {
 		msg.addProperty("type", "frames");
 		msg.addProperty("on", wantFrames);
 		msg.addProperty("fps", videoFps);
+		msg.addProperty("live", liveTiles);
 		send(msg);
 	}
 

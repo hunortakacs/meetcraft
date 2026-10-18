@@ -55,6 +55,11 @@ final class ClientConfig {
 
 	/** How many frames per second the browser captures of the call. */
 	int videoFps = 30;
+	/**
+	 * The call's videos drawn live over a picture of the Meet page taken a few times a second, instead of every frame
+	 * being a picture of the page. Smoother, but it relies on more guesses about Meet's page.
+	 */
+	boolean meetLiveTiles = true;
 	/** Corner rounding of the Meet view in GUI pixels (0 = square); the enlarged view rounds a bit more. */
 	int cornerRadius = 6;
 

@@ -94,6 +94,222 @@ function reportStage() {
 
 setInterval(reportStage, 500);
 
+// --- Live tiles. The background still takes pictures of the stage, but only about 10 times a second ("layout"); for
+// each frame ("compose") this draws the latest picture and paints the call's videos (cameras, presentations) over it
+// straight from their <video> elements, so they move at their own frame rate. Whatever Meet puts over a video (names,
+// mic icons, the speaking ring) is copied back on top from the picture, so it lags the video by up to a tenth of a
+// second, which nobody sees on a name. The game's "Meet video" setting switches back to whole pictures of the page.
+
+const LAYOUT_STALE_MS = 1500;
+const JPEG_QUALITY = 0.7;
+const MAX_PATCHES = 24;
+const composeCanvas = document.createElement("canvas");
+/** The latest picture of the stage and what's painted over it: { bitmap, tiles, at }. */
+let layout = null;
+let composing = false;
+let liveFailed = false;
+
+function intersect(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  return right > left && bottom > top ? { left, top, right, bottom } : null;
+}
+
+function alpha(color) {
+  if (!color || color === "transparent") return 0;
+  const parts = /rgba?\(([^)]*)\)/.exec(color)?.[1].split(/[\s,/]+/).filter(Boolean);
+  return parts?.length > 3 ? parseFloat(parts[3]) : 1;
+}
+
+/** From `el` up to its call tile, or a few levels when it isn't in one. */
+function* upToTile(el) {
+  for (let node = el, depth = 0; node && depth < 12; node = node.parentElement, depth++) {
+    yield node;
+    if (node.hasAttribute("data-participant-id")) return;
+  }
+}
+
+function hiddenStyle(style) {
+  return style.display === "none" || style.visibility === "hidden" || Number(style.opacity) < 0.05;
+}
+
+function hidden(el) {
+  for (const node of upToTile(el)) if (hiddenStyle(getComputedStyle(node))) return true;
+  return false;
+}
+
+/** Your own camera is shown mirrored, with a CSS flip on the video or round it. */
+function mirrored(video) {
+  let flip = false;
+  for (const node of upToTile(video)) {
+    const a = /^matrix\(([^,]+)/.exec(getComputedStyle(node).transform)?.[1];
+    if (a !== undefined && parseFloat(a) < 0) flip = !flip;
+  }
+  return flip;
+}
+
+/** Where the video is cut off, and how round its corners are: the nearest box round it that clips (the tile). */
+function clipOf(video) {
+  let rect = video.getBoundingClientRect();
+  let radius = parseFloat(getComputedStyle(video).borderTopLeftRadius) || 0;
+  for (const node of upToTile(video)) {
+    if (node === video) continue;
+    const style = getComputedStyle(node);
+    if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+      rect = intersect(rect, node.getBoundingClientRect());
+      radius = Math.max(radius, parseFloat(style.borderTopLeftRadius) || 0);
+      break;
+    }
+  }
+  return { rect, radius };
+}
+
+/** Something over the video at this point that hides it, like the avatar of a camera that's off. */
+function coveredAt(video, x, y) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    if (el === video || el.contains(video)) return false;
+    if (["IMG", "CANVAS", "VIDEO"].includes(el.tagName)) return true;
+    const style = getComputedStyle(el);
+    if (alpha(style.backgroundColor) > 0.9 || style.backgroundImage !== "none") return true;
+  }
+  return false;
+}
+
+/** Whether an element puts anything on screen of its own: text, an icon, a background, a border. */
+function paints(el, style) {
+  if (["IMG", "CANVAS", "I"].includes(el.tagName) || el instanceof SVGSVGElement) return true;
+  for (const child of el.childNodes) if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) return true;
+  return alpha(style.backgroundColor) > 0.05 || style.backgroundImage !== "none" || frames(style);
+}
+
+function frames(style) {
+  return style.boxShadow !== "none" || (parseFloat(style.borderTopWidth) > 0 && alpha(style.borderTopColor) > 0.05);
+}
+
+function grow(rect, by, within) {
+  return intersect({ left: rect.left - by, top: rect.top - by, right: rect.right + by, bottom: rect.bottom + by }, within);
+}
+
+/**
+ * The bits of the tile Meet paints over the video: elements after it in the page (so on top) that show something.
+ * Small ones are copied whole; one as big as the tile (the speaking ring, a frame) only along its edges.
+ */
+function overlaysOver(video, visible) {
+  const tile = video.closest("[data-participant-id]");
+  if (!tile) return [];
+  const area = (visible.right - visible.left) * (visible.bottom - visible.top);
+  const patches = [];
+  for (const el of tile.querySelectorAll("*")) {
+    if (patches.length >= MAX_PATCHES) break;
+    if (el === video || el.contains(video) || el.ownerSVGElement) continue;
+    if (!(video.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+    const r = el.getBoundingClientRect();
+    const over = r.width >= 1 && r.height >= 1 && intersect(r, visible);
+    if (!over) continue;
+    const style = getComputedStyle(el);
+    if (hiddenStyle(style) || !paints(el, style)) continue;
+    if (r.width * r.height <= area / 2) {
+      patches.push(grow(over, 2, visible));
+    } else if (frames(style)) {
+      const edge = Math.max(4, parseFloat(style.borderTopWidth) || 0) + 1;
+      const { left, top, right, bottom } = over;
+      patches.push(
+        { left, top, right, bottom: Math.min(bottom, top + edge) },
+        { left, top: Math.max(top, bottom - edge), right, bottom },
+        { left, top, right: Math.min(right, left + edge), bottom },
+        { left: Math.max(left, right - edge), top, right, bottom },
+      );
+    }
+  }
+  return patches.filter(Boolean);
+}
+
+/** Where each live video goes in a picture of `stage` that's `bitmap` big, measured now, as the picture arrives. */
+function liveTiles(stage, bitmap) {
+  const view = { left: stage.x - scrollX, top: stage.y - scrollY };
+  view.right = view.left + stage.width;
+  view.bottom = view.top + stage.height;
+  const sx = bitmap.width / stage.width;
+  const sy = bitmap.height / stage.height;
+  const toFrame = (r) => ({ x: (r.left - view.left) * sx, y: (r.top - view.top) * sy, w: (r.right - r.left) * sx, h: (r.bottom - r.top) * sy });
+  const tiles = [];
+  for (const video of document.querySelectorAll("video")) {
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth) continue;
+    const clip = clipOf(video);
+    const visible = clip.rect && intersect(clip.rect, view);
+    if (!visible || visible.right - visible.left < 16 || visible.bottom - visible.top < 16 || hidden(video)) continue;
+    if (coveredAt(video, (visible.left + visible.right) / 2, (visible.top + visible.bottom) / 2)) continue;
+    tiles.push({
+      video,
+      box: toFrame(video.getBoundingClientRect()),
+      clip: toFrame(visible),
+      radius: clip.radius * sx,
+      mirrored: mirrored(video),
+      fit: getComputedStyle(video).objectFit,
+      patches: overlaysOver(video, visible).map(toFrame),
+    });
+  }
+  return tiles;
+}
+
+/** Where the picture sits inside the video element, following its object-fit (centred, as Meet has it). */
+function placed(tile) {
+  const { box, fit, video } = tile;
+  if (fit === "fill") return box;
+  const scale = (fit === "cover" ? Math.max : Math.min)(box.w / video.videoWidth, box.h / video.videoHeight);
+  const w = video.videoWidth * scale;
+  const h = video.videoHeight * scale;
+  return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h };
+}
+
+async function onLayout(jpeg, stage) {
+  const bitmap = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
+  const tiles = liveTiles(stage, bitmap);
+  layout?.bitmap.close();
+  layout = { bitmap, tiles, at: performance.now() };
+}
+
+async function compose() {
+  if (composing || liveFailed || !layout || !port || performance.now() - layout.at > LAYOUT_STALE_MS) return;
+  composing = true;
+  try {
+    const { bitmap, tiles } = layout;
+    if (composeCanvas.width !== bitmap.width || composeCanvas.height !== bitmap.height) {
+      composeCanvas.width = bitmap.width;
+      composeCanvas.height = bitmap.height;
+    }
+    const ctx = composeCanvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0);
+    for (const tile of tiles) {
+      if (!tile.video.isConnected || tile.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue;
+      const { clip, box } = tile;
+      const at = placed(tile);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(clip.x, clip.y, clip.w, clip.h, tile.radius);
+      ctx.clip();
+      if (tile.mirrored) {
+        // Flip round the middle of the video element, as the page does.
+        ctx.translate(2 * box.x + box.w, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(tile.video, at.x, at.y, at.w, at.h);
+      ctx.restore();
+      for (const p of tile.patches) ctx.drawImage(bitmap, p.x, p.y, p.w, p.h, p.x, p.y, p.w, p.h);
+    }
+    const blob = await new Promise((resolve) => composeCanvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+    if (blob && port) port.postMessage({ type: "frame", jpeg: await blob.arrayBuffer() });
+  } catch (error) {
+    liveFailed = true;
+    console.warn("[MeetCraft] couldn't draw the call's videos; sending pictures of the page instead:", error);
+    port?.postMessage({ type: "liveFailed" });
+  } finally {
+    composing = false;
+  }
+}
+
 
 // --- Status in the MeetCraft badge (toggle.js), so it's obvious from the Meet tab whether Minecraft is hooked up. ---
 
@@ -291,6 +507,10 @@ function connect() {
       onGameMic(msg.on);
     } else if (msg.type === "gateCheck") {
       syncMic(); // the background's clock isn't throttled like this tab's timers, so checks keep coming
+    } else if (msg.type === "layout") {
+      onLayout(msg.jpeg, msg.stage).catch((error) => console.debug("[MeetCraft] couldn't read a picture of the stage:", error));
+    } else if (msg.type === "compose") {
+      compose();
     } else if (msg.type === "status") {
       Object.assign(status, msg, { known: true });
       if (!status.mc) onGameGone();
